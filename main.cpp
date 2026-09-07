@@ -5,16 +5,10 @@
 #include <cmath>
 #include <ctime>
 
-// ============================================================
-// SETTINGS
-// ============================================================
 const char* SCENE_FILE = "Untitled.glb";
 const double GAME_LENGTH = 8.0 * 60.0;
 Vector3 clockPosition = {0.000f, 2.255f, -0.400f};
 
-// ============================================================
-// GAME STATE
-// ============================================================
 double gameTime = 0.0;
 bool mainPower = true;
 bool lightOn = true;
@@ -48,9 +42,6 @@ double satoshiTimer = 0.0;
 bool lightEventActive = false;
 bool gpuEventActive = false;
 
-// ============================================================
-// SOUNDS
-// ============================================================
 Music glitchSound;
 Music fanNoiseSound;
 Music ambientSound;
@@ -64,78 +55,7 @@ const char* ambientFiles[] = {
 };
 const int ambientCount = 2;
 int currentAmbient = -1;
-// Forward declarations
-void PlayRandomAmbient();
-void StopAmbient();
-void ResumeAmbient();
-// ============================================================
-// ANDROID TOUCH CONTROLS
-// ============================================================
-struct TouchButton {
-    Rectangle rect;
-    const char* text;
-};
 
-TouchButton btnDoor = { {20, 500, 120, 60}, "DOOR" };
-TouchButton btnGenerator = { {160, 500, 140, 60}, "GENERATOR" };
-TouchButton btnLeft = { {20, 580, 100, 50}, "< LEFT" };
-TouchButton btnRight = { {140, 580, 100, 50}, "RIGHT >" };
-
-void UpdateTouchControls()
-{
-    Vector2 touch = GetTouchPosition(0);
-    
-    if (touch.x >= 0 && GetTouchPointCount() > 0)
-    {
-        if (CheckCollisionPointRec(touch, btnDoor.rect) && cameraYaw == -1)
-        {
-            doorClosed = !doorClosed;
-            if (gpuNoise && doorClosed)
-            {
-                gpuNoise = false;
-                gpuEventActive = false;
-                gpuNoiseTimer = 0.0;
-                if (fanLoaded) StopMusicStream(fanNoiseSound);
-                ResumeAmbient();
-            }
-        }
-        
-        if (CheckCollisionPointRec(touch, btnGenerator.rect) && cameraYaw == 1)
-            generatorOn = !generatorOn;
-        
-        if (CheckCollisionPointRec(touch, btnLeft.rect))
-            if (cameraYaw > -1) cameraYaw--;
-        
-        if (CheckCollisionPointRec(touch, btnRight.rect))
-            if (cameraYaw < 1) cameraYaw++;
-    }
-}
-
-void DrawTouchControls()
-{
-    Color doorColor = (cameraYaw == -1 && doorClosed) ? GREEN : 
-                      (cameraYaw == -1 ? RED : DARKGRAY);
-    DrawRectangleRec(btnDoor.rect, doorColor);
-    DrawText(btnDoor.text, btnDoor.rect.x + 25, btnDoor.rect.y + 20, 20, WHITE);
-    
-    Color genColor = (cameraYaw == 1 && generatorOn) ? GREEN : 
-                     (cameraYaw == 1 ? RED : DARKGRAY);
-    DrawRectangleRec(btnGenerator.rect, genColor);
-    DrawText(btnGenerator.text, btnGenerator.rect.x + 15, btnGenerator.rect.y + 20, 18, WHITE);
-    
-    DrawRectangleRec(btnLeft.rect, BLUE);
-    DrawText(btnLeft.text, btnLeft.rect.x + 10, btnLeft.rect.y + 15, 18, WHITE);
-    
-    DrawRectangleRec(btnRight.rect, BLUE);
-    DrawText(btnRight.text, btnRight.rect.x + 5, btnRight.rect.y + 15, 18, WHITE);
-    
-    const char* camText = cameraYaw == -1 ? "LEFT" : (cameraYaw == 1 ? "RIGHT" : "CENTER");
-    DrawText(TextFormat("CAM: %s", camText), 300, 520, 24, YELLOW);
-}
-
-// ============================================================
-// GLB CHECK
-// ============================================================
 bool FindClockName(const char* json, size_t jsonSize)
 {
     const char* name = "\"name\"";
@@ -180,9 +100,6 @@ bool CheckGLBForClock(const char* filename)
     return found;
 }
 
-// ============================================================
-// TIME FORMAT
-// ============================================================
 void FormatGameTime(double time, char* buf, size_t bufSize)
 {
     int gameHours = (int)(time / 60.0);
@@ -190,9 +107,6 @@ void FormatGameTime(double time, char* buf, size_t bufSize)
     std::snprintf(buf, bufSize, "%02d", currentHour);
 }
 
-// ============================================================
-// SCHEDULE EVENTS
-// ============================================================
 void ScheduleNextLightEvent()
 {
     int baseLight = 30 - (currentNight * 3);
@@ -207,9 +121,6 @@ void ScheduleNextGpuEvent()
     nextGpuEvent = baseGpu + (rand() % 30);
 }
 
-// ============================================================
-// RESET (DOES NOT TOUCH fuel)
-// ============================================================
 void ResetGame()
 {
     mainPower = true;
@@ -228,12 +139,10 @@ void ResetGame()
     lightOffTimer = 0.0;
     gpuNoiseTimer = 0.0;
     satoshiTimer = 0.0;
-
     lightOffDuration = 15.0 - (currentNight - 1) * 2.0;
     gpuNoiseDuration = 10.0 - (currentNight - 1) * 1.5;
     if (lightOffDuration < 6.0) lightOffDuration = 6.0;
     if (gpuNoiseDuration < 4.0) gpuNoiseDuration = 4.0;
-
     ScheduleNextLightEvent();
     ScheduleNextGpuEvent();
 }
@@ -244,9 +153,6 @@ void SetGameOver(const char* reason)
     std::snprintf(gameOverReason, sizeof(gameOverReason), "%s", reason);
 }
 
-// ============================================================
-// AMBIENT SOUND
-// ============================================================
 void PlayRandomAmbient()
 {
     if (ambientLoaded)
@@ -259,12 +165,11 @@ void PlayRandomAmbient()
     if (ambientCount > 1 && newIndex == currentAmbient)
         newIndex = (newIndex + 1) % ambientCount;
     currentAmbient = newIndex;
-
     if (FileExists(ambientFiles[newIndex]))
     {
         ambientSound = LoadMusicStream(ambientFiles[newIndex]);
         SetMusicVolume(ambientSound, 0.3f);
-        ambientSound.looping = true;
+        ambientSound.looping = true;  // ИСПРАВЛЕНО!
         PlayMusicStream(ambientSound);
         ambientLoaded = true;
     }
@@ -287,16 +192,13 @@ void ResumeAmbient()
         {
             ambientSound = LoadMusicStream(ambientFiles[currentAmbient]);
             SetMusicVolume(ambientSound, 0.3f);
-            ambientSound.looping = true;
+            ambientSound.looping = true;  // ИСПРАВЛЕНО!
             PlayMusicStream(ambientSound);
             ambientLoaded = true;
         }
     }
 }
 
-// ============================================================
-// MAIN
-// ============================================================
 int main()
 {
     const int SCREEN_WIDTH = 1280;
@@ -383,20 +285,15 @@ int main()
     {
         double delta = GetFrameTime();
 
-#if defined(PLATFORM_ANDROID)
-        UpdateTouchControls();
-#else
         if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))
             if (cameraYaw > -1) cameraYaw--;
         if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
             if (cameraYaw < 1) cameraYaw++;
-#endif
 
         float yawOffset = cameraYaw * 2.0f;
         camera.position.x = yawOffset * 0.5f;
         camera.target.x = yawOffset * 1.5f;
 
-#if !defined(PLATFORM_ANDROID)
         if (IsKeyPressed(KEY_F) && cameraYaw == -1 && !gameOver && !finished && !nightComplete)
         {
             doorClosed = !doorClosed;
@@ -413,7 +310,6 @@ int main()
 
         if (IsKeyPressed(KEY_G) && cameraYaw == 1 && !gameOver && !finished && !nightComplete)
             generatorOn = !generatorOn;
-#endif
 
         if (IsKeyPressed(KEY_SPACE))
         {
@@ -667,10 +563,6 @@ int main()
 
         if (!clockExists)
             DrawText("WARNING: Object 'Clock' not found in GLB", 20, 125, 18, ORANGE);
-
-#if defined(PLATFORM_ANDROID)
-        DrawTouchControls();
-#endif
 
         if (gameOver)
         {
