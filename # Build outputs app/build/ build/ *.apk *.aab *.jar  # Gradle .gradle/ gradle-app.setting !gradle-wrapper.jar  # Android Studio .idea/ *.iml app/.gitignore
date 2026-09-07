@@ -1,0 +1,31 @@
+# Build outputs
+app/build/
+build/
+*.apk
+*.aab
+*.jar
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Android Studio
+.idea/
+*.iml
+app/app.iml
+.DS_Store
+*.hprof
+
+# Local configuration
+local.properties
+
+# Keystore files (НИКОГДА не загружай!)
+*.jks
+*.keystore
+keystore-b64.txt
+output.txt
+
+# Temporary files
+*.log
+*.tmp
