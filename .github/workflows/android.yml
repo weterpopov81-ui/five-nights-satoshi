@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    env:
+      ENCODED_STRING: ${{ secrets.SIGNING_KEY_STORE }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      STORE_NAME: "keystore.jks"
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'corretto'
+        java-version: 17
+    
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+    
+    - name: Decode Keystore
+      run: |
+        echo "$ENCODED_STRING" > keystore-b64.txt
+        base64 -d keystore-b64.txt > "$STORE_NAME"
+    
+    - name: Grant permission
+      run: chmod -R 777 ./gradlew
+    
+    - name: Build Release APK
+      run: ./gradlew assembleRelease \
+        -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/$STORE_NAME \
+        -Pandroid.injected.signing.store.password=$SIGNING_STORE_PASSWORD \
+        -Pandroid.injected.signing.key.alias=$SIGNING_KEY_ALIAS \
+        -Pandroid.injected.signing.key.password=$SIGNING_KEY_PASSWORD
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: five-nights-satoshi-apk
+        path: app/build/outputs/apk/release/app-release.apk
