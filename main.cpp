@@ -5,33 +5,69 @@
 #include <cmath>
 #include <ctime>
 
+// ============================================================
+// НАСТРОЙКИ
+// ============================================================
 const char* SCENE_FILE = "Untitled.glb";
 const double GAME_LENGTH = 8.0 * 60.0;
 Vector3 clockPosition = {0.000f, 2.255f, -0.400f};
 
+// ============================================================
+// ИГРОВОЕ ВРЕМЯ
+// ============================================================
 double gameTime = 0.0;
+
+// ============================================================
+// ЭЛЕКТРИЧЕСТВО
+// ============================================================
 bool mainPower = true;
 bool lightOn = true;
 bool generatorOn = false;
+
+// ============================================================
+// ДВЕРЬ / GPU
+// ============================================================
 bool gpuNoise = false;
 bool doorClosed = false;
+
+// ============================================================
+// СОСТОЯНИЕ ИГРЫ
+// ============================================================
 bool gameOver = false;
 bool finished = false;
 bool nightComplete = false;
 char gameOverReason[256] = "";
-int cameraYaw = 0;
 
+// ============================================================
+// КАМЕРА (ПЛАВНАЯ)
+// ============================================================
+int cameraYaw = 0;
+float currentCameraAngle = 0.0f;
+const float CAMERA_SMOOTH_SPEED = 5.0f;
+
+// ============================================================
+// ГЕНЕРАТОР
+// ============================================================
 double fuel = 100.0;
 const double MAX_FUEL = 100.0;
 double fuelConsumptionRate = 0.5;
 
+// ============================================================
+// GPU
+// ============================================================
 double gpuTemperature = 25.0;
 const double MAX_TEMP = 95.0;
 const double MIN_TEMP = 20.0;
 
+// ============================================================
+// НОЧИ
+// ============================================================
 int currentNight = 1;
 const int maxNights = 5;
 
+// ============================================================
+// СОБЫТИЯ
+// ============================================================
 double nextLightEvent = 30.0;
 double nextGpuEvent = 40.0;
 double lightOffDuration = 15.0;
@@ -42,6 +78,9 @@ double satoshiTimer = 0.0;
 bool lightEventActive = false;
 bool gpuEventActive = false;
 
+// ============================================================
+// ЗВУКИ
+// ============================================================
 Music glitchSound;
 Music fanNoiseSound;
 Music ambientSound;
@@ -56,9 +95,26 @@ const char* ambientFiles[] = {
 const int ambientCount = 2;
 int currentAmbient = -1;
 
+// ============================================================
+// ANDROID КНОПКИ
+// ============================================================
+struct TouchButton {
+    Rectangle rect;
+    const char* text;
+    bool visible;
+};
+
+TouchButton btnDoor = { {20, 500, 150, 80}, "ОТКРЫТЬ\nДВЕРЬ", false };
+TouchButton btnCloseDoor = { {20, 500, 150, 80}, "ЗАКРЫТЬ\nДВЕРЬ", false };
+TouchButton btnGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВКЛ", false };
+TouchButton btnStopGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВЫКЛ", false };
+
+// ============================================================
+// ПОИСК CLOCK В GLB
+// ============================================================
 bool FindClockName(const char* json, size_t jsonSize)
 {
-    const char* name = "\"name\"";
+    const char* name = "name";
     for (size_t i = 0; i + 20 < jsonSize; i++)
     {
         if (std::memcmp(json + i, name, 6) == 0)
@@ -75,6 +131,9 @@ bool FindClockName(const char* json, size_t jsonSize)
     return false;
 }
 
+// ============================================================
+// ПРОВЕРКА GLB
+// ============================================================
 bool CheckGLBForClock(const char* filename)
 {
     FILE* file = std::fopen(filename, "rb");
@@ -100,6 +159,9 @@ bool CheckGLBForClock(const char* filename)
     return found;
 }
 
+// ============================================================
+// ФОРМАТИРОВАНИЕ ВРЕМЕНИ
+// ============================================================
 void FormatGameTime(double time, char* buf, size_t bufSize)
 {
     int gameHours = (int)(time / 60.0);
@@ -107,6 +169,9 @@ void FormatGameTime(double time, char* buf, size_t bufSize)
     std::snprintf(buf, bufSize, "%02d", currentHour);
 }
 
+// ============================================================
+// ПЛАНИРОВАНИЕ СОБЫТИЙ
+// ============================================================
 void ScheduleNextLightEvent()
 {
     int baseLight = 30 - (currentNight * 3);
@@ -121,6 +186,9 @@ void ScheduleNextGpuEvent()
     nextGpuEvent = baseGpu + (rand() % 30);
 }
 
+// ============================================================
+// СБРОС НОЧИ
+// ============================================================
 void ResetGame()
 {
     mainPower = true;
@@ -133,6 +201,8 @@ void ResetGame()
     nightComplete = false;
     gameOverReason[0] = '\0';
     cameraYaw = 0;
+    currentCameraAngle = 0.0f;
+    fuel = MAX_FUEL;
     gpuTemperature = 25.0;
     lightEventActive = false;
     gpuEventActive = false;
@@ -147,12 +217,18 @@ void ResetGame()
     ScheduleNextGpuEvent();
 }
 
+// ============================================================
+// GAME OVER
+// ============================================================
 void SetGameOver(const char* reason)
 {
     gameOver = true;
     std::snprintf(gameOverReason, sizeof(gameOverReason), "%s", reason);
 }
 
+// ============================================================
+// ФОНОВЫЙ ЗВУК
+// ============================================================
 void PlayRandomAmbient()
 {
     if (ambientLoaded)
@@ -169,7 +245,7 @@ void PlayRandomAmbient()
     {
         ambientSound = LoadMusicStream(ambientFiles[newIndex]);
         SetMusicVolume(ambientSound, 0.3f);
-        ambientSound.looping = true;  // ИСПРАВЛЕНО!
+        ambientSound.looping = true;
         PlayMusicStream(ambientSound);
         ambientLoaded = true;
     }
@@ -192,13 +268,111 @@ void ResumeAmbient()
         {
             ambientSound = LoadMusicStream(ambientFiles[currentAmbient]);
             SetMusicVolume(ambientSound, 0.3f);
-            ambientSound.looping = true;  // ИСПРАВЛЕНО!
+            ambientSound.looping = true;
             PlayMusicStream(ambientSound);
             ambientLoaded = true;
         }
     }
 }
 
+// ============================================================
+// ANDROID TOUCH CONTROLS
+// ============================================================
+void UpdateTouchControls()
+{
+    Vector2 touch = GetTouchPosition(0);
+    if (touch.x < 0) return;
+    
+    // Кнопка двери (когда смотрим налево)
+    if (cameraYaw == -1)
+    {
+        if (doorClosed)
+        {
+            if (CheckCollisionPointRec(touch, btnCloseDoor.rect))
+            {
+                doorClosed = false;
+            }
+        }
+        else
+        {
+            if (CheckCollisionPointRec(touch, btnDoor.rect))
+            {
+                doorClosed = true;
+                if (gpuNoise && doorClosed)
+                {
+                    gpuNoise = false;
+                    gpuEventActive = false;
+                    gpuNoiseTimer = 0.0;
+                    ScheduleNextGpuEvent();
+                    if (fanLoaded) StopMusicStream(fanNoiseSound);
+                    ResumeAmbient();
+                }
+            }
+        }
+    }
+    
+    // Кнопка генератора (когда смотрим направо)
+    if (cameraYaw == 1)
+    {
+        if (generatorOn)
+        {
+            if (CheckCollisionPointRec(touch, btnStopGenerator.rect))
+            {
+                generatorOn = false;
+            }
+        }
+        else
+        {
+            if (CheckCollisionPointRec(touch, btnGenerator.rect))
+            {
+                generatorOn = true;
+            }
+        }
+    }
+}
+
+void DrawTouchControls()
+{
+    // Кнопки двери (слева)
+    if (cameraYaw == -1)
+    {
+        if (doorClosed)
+        {
+            DrawRectangleRec(btnCloseDoor.rect, RED);
+            DrawText(btnCloseDoor.text, btnCloseDoor.rect.x + 20, btnCloseDoor.rect.y + 20, 20, WHITE);
+        }
+        else
+        {
+            DrawRectangleRec(btnDoor.rect, GREEN);
+            DrawText(btnDoor.text, btnDoor.rect.x + 20, btnDoor.rect.y + 20, 20, WHITE);
+        }
+    }
+    
+    // Кнопки генератора (справа)
+    if (cameraYaw == 1)
+    {
+        if (generatorOn)
+        {
+            DrawRectangleRec(btnStopGenerator.rect, RED);
+            DrawText(btnStopGenerator.text, btnStopGenerator.rect.x + 15, btnStopGenerator.rect.y + 20, 18, WHITE);
+        }
+        else
+        {
+            DrawRectangleRec(btnGenerator.rect, GREEN);
+            DrawText(btnGenerator.text, btnGenerator.rect.x + 15, btnGenerator.rect.y + 20, 18, WHITE);
+        }
+    }
+    
+    // Индикатор положения камеры
+    const char* camText = cameraYaw == -1 ? "ДВЕРЬ" : (cameraYaw == 1 ? "ГЕНЕРАТОР" : "ЦЕНТР");
+    Color camColor = cameraYaw == 0 ? GREEN : YELLOW;
+    DrawRectangle(SCREEN_WIDTH / 2 - 100, 520, 200, 40, Fade(BLACK, 0.7f));
+    DrawText(TextFormat("КАМЕРА: %s", camText), SCREEN_WIDTH / 2 - 90, 530, 24, camColor);
+}
+
+// ============================================================
+// MAIN
+// ============================================================
 int main()
 {
     const int SCREEN_WIDTH = 1280;
@@ -208,20 +382,13 @@ int main()
     MenuChoice choice = ShowMainMenu();
     if (choice == CHOICE_EXIT) return 0;
 
-    if (choice == CHOICE_NEW_GAME)
-    {
-        currentNight = 1;
-        fuel = MAX_FUEL;
-        DeleteSave();
-    }
-    else if (choice == CHOICE_CONTINUE)
+    if (choice == CHOICE_CONTINUE)
     {
         SaveData save = LoadGame();
         currentNight = save.currentNight;
-        fuel = save.fuel;
     }
 
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "FIVE NIGHTS WITH SATOSHI");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "ПЯТЬ НОЧЕЙ С САТОШИ");
     InitAudioDevice();
     SetTargetFPS(60);
 
@@ -281,19 +448,76 @@ int main()
 
     ResetGame();
 
+    if (choice == CHOICE_CONTINUE)
+    {
+        SaveData save = LoadGame();
+        fuel = save.fuel;
+    }
+
     while (!WindowShouldClose())
     {
         double delta = GetFrameTime();
 
+        // === ПЛАВНОЕ ВРАЩЕНИЕ КАМЕРЫ ===
+        int targetYaw = cameraYaw;
+        
+#if defined(PLATFORM_ANDROID)
+        // Android - тач управление
+        Vector2 touch = GetTouchPosition(0);
+        if (touch.x >= 0)
+        {
+            // Левая часть экрана - дверь
+            if (touch.x < SCREEN_WIDTH / 3)
+            {
+                targetYaw = -1;
+            }
+            // Правая часть экрана - генератор
+            else if (touch.x > 2 * SCREEN_WIDTH / 3)
+            {
+                targetYaw = 1;
+            }
+            // Центр - часы
+            else
+            {
+                targetYaw = 0;
+            }
+        }
+#else
+        // PC - клавиатура
         if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))
-            if (cameraYaw > -1) cameraYaw--;
+        {
+            if (cameraYaw > -1) targetYaw = -1;
+        }
         if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
-            if (cameraYaw < 1) cameraYaw++;
+        {
+            if (cameraYaw < 1) targetYaw = 1;
+        }
+        if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP))
+        {
+            targetYaw = 0;
+        }
+#endif
+        
+        cameraYaw = targetYaw;
+        
+        // Плавная интерполяция угла камеры
+        float targetAngle = cameraYaw * 90.0f; // -90, 0, или +90 градусов
+        currentCameraAngle += (targetAngle - currentCameraAngle) * CAMERA_SMOOTH_SPEED * delta;
+        
+        // Применяем плавный поворот
+        float yawOffset = currentCameraAngle * DEG2RAD;
+        camera.position.x = sinf(yawOffset) * 4.0f;
+        camera.position.z = 4.0f + cosf(yawOffset) * 4.0f - 4.0f;
+        camera.target.x = sinf(yawOffset) * 2.0f;
+        camera.target.z = cosf(yawOffset) * 2.0f;
 
-        float yawOffset = cameraYaw * 2.0f;
-        camera.position.x = yawOffset * 0.5f;
-        camera.target.x = yawOffset * 1.5f;
+        // Обновление Android кнопок
+#if defined(PLATFORM_ANDROID)
+        UpdateTouchControls();
+#endif
 
+        // Дверь (PC)
+#if !defined(PLATFORM_ANDROID)
         if (IsKeyPressed(KEY_F) && cameraYaw == -1 && !gameOver && !finished && !nightComplete)
         {
             doorClosed = !doorClosed;
@@ -308,9 +532,14 @@ int main()
             }
         }
 
+        // Генератор (PC)
         if (IsKeyPressed(KEY_G) && cameraYaw == 1 && !gameOver && !finished && !nightComplete)
+        {
             generatorOn = !generatorOn;
+        }
+#endif
 
+        // SPACE
         if (IsKeyPressed(KEY_SPACE))
         {
             if (gameOver)
@@ -346,12 +575,14 @@ int main()
             }
         }
 
+        // Игровая логика
         if (!finished && !gameOver && !nightComplete)
         {
             gameTime += delta;
             nextLightEvent -= delta;
             nextGpuEvent -= delta;
 
+            // Отключение света
             if (nextLightEvent <= 0 && mainPower && !lightEventActive)
             {
                 mainPower = false;
@@ -368,14 +599,21 @@ int main()
 
             lightOn = mainPower || generatorOn;
 
+            // Сатоши
             if (!lightOn && !generatorOn && !mainPower)
             {
                 satoshiTimer += delta;
                 if (satoshiTimer >= 10.0)
+                {
                     SetGameOver("SATOSHI ARRIVED! Start the generator!");
+                }
             }
-            else satoshiTimer = 0.0;
+            else
+            {
+                satoshiTimer = 0.0;
+            }
 
+            // Авария электричества
             if (lightEventActive)
             {
                 lightOffTimer += delta;
@@ -394,12 +632,7 @@ int main()
                 }
             }
 
-            if (generatorOn && mainPower && !lightEventActive)
-            {
-                generatorOn = false;
-                lightOn = true;
-            }
-
+            // Топливо
             if (generatorOn)
             {
                 fuel -= fuelConsumptionRate * delta;
@@ -411,6 +644,7 @@ int main()
                 }
             }
 
+            // GPU шум
             if (nextGpuEvent <= 0 && !gpuNoise && !gpuEventActive && !doorClosed)
             {
                 gpuNoise = true;
@@ -421,14 +655,17 @@ int main()
                     StopMusicStream(fanNoiseSound);
                     PlayMusicStream(fanNoiseSound);
                 }
-                StopAmbient();
             }
             else if (nextGpuEvent <= 0 && doorClosed)
             {
                 ScheduleNextGpuEvent();
             }
 
-            if (doorClosed) gpuTemperature += 1.5 * delta;
+            // Температура
+            if (doorClosed)
+            {
+                gpuTemperature += 1.5 * delta;
+            }
             else
             {
                 gpuTemperature -= 2.0 * delta;
@@ -436,13 +673,15 @@ int main()
             }
             if (gpuNoise) gpuTemperature += 4.0 * delta;
 
+            // Перегрев
             if (gpuTemperature >= MAX_TEMP)
             {
                 char reason[256];
-                std::snprintf(reason, sizeof(reason), "GPU OVERHEATED! %.0f C", gpuTemperature);
+                std::ssprintf(reason, sizeof(reason), "GPU OVERHEATED! %.0f C", gpuTemperature);
                 SetGameOver(reason);
             }
 
+            // Таймер GPU
             if (gpuEventActive)
             {
                 gpuNoiseTimer += delta;
@@ -454,6 +693,7 @@ int main()
                 }
             }
 
+            // Конец ночи
             if (gameTime >= GAME_LENGTH)
             {
                 gameTime = GAME_LENGTH;
@@ -466,13 +706,16 @@ int main()
             }
         }
 
+        // Обновление звуков
         if (glitchLoaded && IsMusicStreamPlaying(glitchSound)) UpdateMusicStream(glitchSound);
         if (fanLoaded && IsMusicStreamPlaying(fanNoiseSound)) UpdateMusicStream(fanNoiseSound);
         if (ambientLoaded) UpdateMusicStream(ambientSound);
 
+        // Время на часах
         char clockText[32];
         FormatGameTime(gameTime, clockText, sizeof(clockText));
 
+        // Рисование
         BeginDrawing();
         if (lightOn) ClearBackground(RAYWHITE);
         else ClearBackground(Color{30, 30, 40, 255});
@@ -481,6 +724,7 @@ int main()
         DrawModel(scene, Vector3{0, 0, 0}, 1.0f, WHITE);
         EndMode3D();
 
+        // Часы
         Vector2 screenPosition = GetWorldToScreen(clockPosition, camera);
         int fontSize = 60;
         int textWidth = MeasureText(clockText, fontSize);
@@ -488,6 +732,7 @@ int main()
         int textY = (int)screenPosition.y - fontSize / 2;
         DrawText(clockText, textX, textY, fontSize, RED);
 
+        // HUD
         DrawText(TextFormat("NIGHT %d / %d", currentNight, maxNights), SCREEN_WIDTH / 2 - 60, 20, 25, YELLOW);
 
         Color bulbColor = lightOn ? YELLOW : DARKGRAY;
@@ -508,12 +753,10 @@ int main()
         DrawRectangle(20, 150, 130, 30, doorColor);
         DrawText(doorClosed ? "DOOR: CLOSED" : "DOOR: OPEN", 25, 157, 18, BLACK);
 
-        if (generatorOn && mainPower && !lightEventActive && (int)(GetTime() * 4) % 2 == 0)
-            DrawText("!!! TURN OFF GENERATOR [G] !!!", SCREEN_WIDTH / 2 - 160, 220, 24, YELLOW);
-
+        // Предупреждения
         if (generatorOn && fuel < 20.0 && (int)(GetTime() * 4) % 2 == 0)
             DrawText("!!! LOW FUEL! TURN OFF GENERATOR [G] !!!", SCREEN_WIDTH / 2 - 200, 250, 24, RED);
-
+        
         if (satoshiTimer > 0.0)
         {
             if ((int)(GetTime() * 5) % 2 == 0)
@@ -539,7 +782,7 @@ int main()
             if ((int)(GetTime() * 5) % 2 == 0)
                 DrawText("!!! FAN NOISE! TURN LEFT [A] - CLOSE DOOR [F] !!!", SCREEN_WIDTH / 2 - 320, 150, 26, RED);
             char tempText[64];
-            std::snprintf(tempText, sizeof(tempText), "GPU: %.0f C / %.0f C | Time: %.1f sec", gpuTemperature, MAX_TEMP, timeLeft);
+            std::snprintf(tempText, sizeof(tempText), "GPU: %.0f C / %.0f C  |  Time: %.1f sec", gpuTemperature, MAX_TEMP, timeLeft);
             DrawText(tempText, SCREEN_WIDTH / 2 - 220, 185, 22, gpuTemperature > 70 ? RED : YELLOW);
         }
         else
@@ -550,7 +793,7 @@ int main()
         }
 
         const char* yawText = cameraYaw == -1 ? "LEFT (door)" : (cameraYaw == 1 ? "RIGHT (generator)" : "CENTER (clock)");
-        DrawText(TextFormat("Camera: %s [A/D]", yawText), 20, 20, 20, GRAY);
+        DrawText(TextFormat("Camera: %s  [A/D/W]", yawText), 20, 20, 20, GRAY);
         DrawText("F - door (only when looking left)", 20, 50, 18, GRAY);
         DrawText("G - generator (only when looking right)", 20, 75, 18, GRAY);
         DrawText("A/D - rotate camera", 20, 100, 18, GRAY);
@@ -564,6 +807,12 @@ int main()
         if (!clockExists)
             DrawText("WARNING: Object 'Clock' not found in GLB", 20, 125, 18, ORANGE);
 
+        // Android кнопки
+#if defined(PLATFORM_ANDROID)
+        DrawTouchControls();
+#endif
+
+        // Экраны состояния
         if (gameOver)
         {
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(BLACK, 0.8f));
