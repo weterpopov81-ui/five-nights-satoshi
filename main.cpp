@@ -6,8 +6,10 @@
 #include <ctime>
 
 // ============================================================
-// НАСТРОЙКИ
+// НАСТРОЙКИ (ГЛОБАЛЬНЫЕ)
 // ============================================================
+const int SCREEN_WIDTH = 1280;
+const int SCREEN_HEIGHT = 720;
 const char* SCENE_FILE = "Untitled.glb";
 const double GAME_LENGTH = 8.0 * 60.0;
 Vector3 clockPosition = {0.000f, 2.255f, -0.400f};
@@ -375,8 +377,6 @@ void DrawTouchControls()
 // ============================================================
 int main()
 {
-    const int SCREEN_WIDTH = 1280;
-    const int SCREEN_HEIGHT = 720;
     srand((unsigned int)time(nullptr));
 
     MenuChoice choice = ShowMainMenu();
@@ -677,7 +677,7 @@ int main()
             if (gpuTemperature >= MAX_TEMP)
             {
                 char reason[256];
-                std::ssprintf(reason, sizeof(reason), "GPU OVERHEATED! %.0f C", gpuTemperature);
+                std::snprintf(reason, sizeof(reason), "GPU OVERHEATED! %.0f C", gpuTemperature);
                 SetGameOver(reason);
             }
 
@@ -717,12 +717,28 @@ int main()
 
         // Рисование
         BeginDrawing();
-        if (lightOn) ClearBackground(RAYWHITE);
-        else ClearBackground(Color{30, 30, 40, 255});
+        
+        // ТУСКЛЫЙ СВЕТ - темный фон всегда
+        if (lightOn) 
+        {
+            ClearBackground(RAYWHITE);
+        }
+        else 
+        {
+            // Очень темный фон когда свет выключен
+            ClearBackground((Color){15, 15, 20, 255});
+        }
 
         BeginMode3D(camera);
         DrawModel(scene, Vector3{0, 0, 0}, 1.0f, WHITE);
         EndMode3D();
+
+        // ЭФФЕКТ ТУСКЛОГО СВЕТА - полупрозрачный оверлей
+        if (!lightOn)
+        {
+            // Рисуем полупрозрачный черный прямоугольник поверх всего 3D
+            DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(BLACK, 0.7f));
+        }
 
         // Часы
         Vector2 screenPosition = GetWorldToScreen(clockPosition, camera);
