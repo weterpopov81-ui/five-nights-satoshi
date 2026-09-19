@@ -2,55 +2,53 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # можно запускать вручную
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-    
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-    
-    - name: Install NDK and CMake
-      run: |
-        sdkmanager "ndk;26.1.10909125"
-        sdkmanager "cmake;3.22.1"
-    
-    - name: Clone raymob template
-      run: |
-        cd /tmp
-        git clone https://github.com/Bigfoot71/raymob.git
-        cd raymob
-        chmod +x gradlew
-    
-    - name: Copy game files
-      run: |
-        cp main.cpp /tmp/raymob/app/src/main/cpp/
-        cp menu.cpp /tmp/raymob/app/src/main/cpp/
-        cp menu.h /tmp/raymob/app/src/main/cpp/
-        mkdir -p /tmp/raymob/app/src/main/assets
-        cp *.mp3 /tmp/raymob/app/src/main/assets/ || true
-        cp *.glb /tmp/raymob/app/src/main/assets/ || true
-        cp *.png /tmp/raymob/app/src/main/assets/ || true
-        cp *.jpg /tmp/raymob/app/src/main/assets/ || true
-    
-    - name: Build APK
-      run: |
-        cd /tmp/raymob
-        ./gradlew assembleDebug --stacktrace
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: five-nights-satoshi-apk
-        path: /tmp/raymob/app/build/outputs/apk/debug/app-debug.apk
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      # ============================================
+      # Здесь будет сборка твоего проекта
+      # Пока заглушка — потом добавим реальную сборку
+      # ============================================
+
+      - name: Build APK (placeholder)
+        run: |
+          echo "Сюда потом добавим реальную команду сборки"
+          echo "Сейчас workflow просто проверяет, что SDK ставится нормально"
+
+      # Пример, как потом сохранять APK:
+      # - name: Upload APK
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: satoshi-apk
+      #     path: app/build/outputs/apk/release/*.apk
