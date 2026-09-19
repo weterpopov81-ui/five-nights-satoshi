@@ -4,15 +4,14 @@ on:
   push:
     branches: [ main, master ]
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:   # можно запускать вручную
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -21,10 +20,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # ========== Правильная установка Android SDK ==========
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Не даём экшену ставить старый пакет tools
+          packages: ''
 
-      - name: Install Android SDK packages
+      - name: Install required packages
         run: |
           sdkmanager --install \
             "platform-tools" \
@@ -33,22 +36,14 @@ jobs:
             "ndk;26.3.11579264" \
             "cmake;3.22.1"
 
-      - name: Accept Android licenses
-        run: yes | sdkmanager --licenses || true
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
 
-      # ============================================
-      # Здесь будет сборка твоего проекта
-      # Пока заглушка — потом добавим реальную сборку
-      # ============================================
-
-      - name: Build APK (placeholder)
+      # ========== Пока просто проверка ==========
+      - name: Check Android SDK
         run: |
-          echo "Сюда потом добавим реальную команду сборки"
-          echo "Сейчас workflow просто проверяет, что SDK ставится нормально"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --list_installed
+          echo "SDK installed successfully"
 
-      # Пример, как потом сохранять APK:
-      # - name: Upload APK
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: satoshi-apk
-      #     path: app/build/outputs/apk/release/*.apk
+      # Сюда потом добавим реальную сборку твоего проекта
