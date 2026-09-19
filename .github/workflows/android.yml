@@ -20,15 +20,29 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # ========== Правильная установка Android SDK ==========
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          # Не даём экшену ставить старый пакет tools
-          packages: ''
-
-      - name: Install required packages
+      # ========== Ручная установка Android SDK ==========
+      - name: Setup Android SDK manually
         run: |
+          # Создаём папку
+          mkdir -p $HOME/android-sdk
+          cd $HOME/android-sdk
+
+          # Скачиваем cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+
+          # Прописываем переменные
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-34" \
@@ -36,14 +50,10 @@ jobs:
             "ndk;26.3.11579264" \
             "cmake;3.22.1"
 
-      - name: Accept licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
-
-      # ========== Пока просто проверка ==========
-      - name: Check Android SDK
+      - name: Verify installation
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_HOME = $ANDROID_HOME"
           sdkmanager --list_installed
-          echo "SDK installed successfully"
+          echo "SDK installed successfully!"
 
-      # Сюда потом добавим реальную сборку твоего проекта
+      # Позже сюда добавим сборку твоего проекта
