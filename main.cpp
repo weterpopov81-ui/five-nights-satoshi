@@ -43,9 +43,11 @@ char gameOverReason[256] = "";
 // ============================================================
 // КАМЕРА (ПЛАВНАЯ)
 // ============================================================
-int cameraYaw = 0;
-float currentCameraAngle = 0.0f;
-const float CAMERA_SMOOTH_SPEED = 5.0f;
+int targetCameraYaw = 0;          // Куда хотим смотреть (-1 / 0 / 1)
+int cameraYaw = 0;                // Текущее "логическое" направление (для управления)
+float currentCameraAngle = 0.0f;  // Текущий угол (градусы)
+const float CAMERA_SMOOTH_SPEED = 7.0f;   // Скорость плавного поворота
+const float CAMERA_ARRIVE_THRESHOLD = 12.0f; // Когда считаем, что довернулись
 
 // ============================================================
 // ГЕНЕРАТОР
@@ -103,13 +105,12 @@ int currentAmbient = -1;
 struct TouchButton {
     Rectangle rect;
     const char* text;
-    bool visible;
 };
 
-TouchButton btnDoor = { {20, 500, 150, 80}, "ОТКРЫТЬ\nДВЕРЬ", false };
-TouchButton btnCloseDoor = { {20, 500, 150, 80}, "ЗАКРЫТЬ\nДВЕРЬ", false };
-TouchButton btnGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВКЛ", false };
-TouchButton btnStopGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВЫКЛ", false };
+TouchButton btnDoor = { {20, 500, 150, 80}, "ОТКРЫТЬ\nДВЕРЬ" };
+TouchButton btnCloseDoor = { {20, 500, 150, 80}, "ЗАКРЫТЬ\nДВЕРЬ" };
+TouchButton btnGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВКЛ" };
+TouchButton btnStopGenerator = { {1110, 500, 150, 80}, "ГЕНЕРАТОР\nВЫКЛ" };
 
 // ============================================================
 // ПОИСК CLOCK В GLB
@@ -119,9 +120,9 @@ bool FindClockName(const char* json, size_t jsonSize)
     const char* name = "name";
     for (size_t i = 0; i + 20 < jsonSize; i++)
     {
-        if (std::memcmp(json + i, name, 6) == 0)
+        if (std::strncmp(json + i, name, 4) == 0)
         {
-            const char* p = json + i + 6;
+            const char* p = json + i + 4;
             while ((size_t)(p - json) < jsonSize &&
                    (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ':'))
                 p++;
@@ -202,6 +203,7 @@ void ResetGame()
     finished = false;
     nightComplete = false;
     gameOverReason[0] = '\0';
+    targetCameraYaw = 0;
     cameraYaw = 0;
     currentCameraAngle = 0.0f;
     fuel = MAX_FUEL;
@@ -282,10 +284,14 @@ void ResumeAmbient()
 // ============================================================
 void UpdateTouchControls()
 {
+    // Работаем только когда камера почти довернулась
+    if (fabsf(currentCameraAngle - targetCameraYaw * 90.0f) > CAMERA_ARRIVE_THRESHOLD)
+        return;
+
     Vector2 touch = GetTouchPosition(0);
     if (touch.x < 0) return;
-    
-    // Кнопка двери (когда смотрим налево)
+
+    // Дверь (левая сторона)
     if (cameraYaw == -1)
     {
         if (doorClosed)
@@ -312,8 +318,8 @@ void UpdateTouchControls()
             }
         }
     }
-    
-    // Кнопка генератора (когда смотрим направо)
+
+    // Генератор (правая сторона)
     if (cameraYaw == 1)
     {
         if (generatorOn)
@@ -335,41 +341,50 @@ void UpdateTouchControls()
 
 void DrawTouchControls()
 {
-    // Кнопки двери (слева)
-    if (cameraYaw == -1)
+    // Показываем кнопки только когда камера почти довернулась
+    bool arrived = fabsf(currentCameraAngle - targetCameraYaw * 90.0f) <= CAMERA_ARRIVE_THRESHOLD;
+
+    if (arrived && cameraYaw == -1)
     {
         if (doorClosed)
         {
             DrawRectangleRec(btnCloseDoor.rect, RED);
-            DrawText(btnCloseDoor.text, btnCloseDoor.rect.x + 20, btnCloseDoor.rect.y + 20, 20, WHITE);
+            DrawText(btnCloseDoor.text, (int)btnCloseDoor.rect.x + 20, (int)btnCloseDoor.rect.y + 20, 20, WHITE);
         }
         else
         {
             DrawRectangleRec(btnDoor.rect, GREEN);
-            DrawText(btnDoor.text, btnDoor.rect.x + 20, btnDoor.rect.y + 20, 20, WHITE);
+            DrawText(btnDoor.text, (int)btnDoor.rect.x + 20, (int)btnDoor.rect.y + 20, 20, WHITE);
         }
     }
-    
-    // Кнопки генератора (справа)
-    if (cameraYaw == 1)
+
+    if (arrived && cameraYaw == 1)
     {
         if (generatorOn)
         {
             DrawRectangleRec(btnStopGenerator.rect, RED);
-            DrawText(btnStopGenerator.text, btnStopGenerator.rect.x + 15, btnStopGenerator.rect.y + 20, 18, WHITE);
+            DrawText(btnStopGenerator.text, (int)btnStopGenerator.rect.x + 15, (int)btnStopGenerator.rect.y + 20, 18, WHITE);
         }
         else
         {
             DrawRectangleRec(btnGenerator.rect, GREEN);
-            DrawText(btnGenerator.text, btnGenerator.rect.x + 15, btnGenerator.rect.y + 20, 18, WHITE);
+            DrawText(btnGenerator.text, (int)btnGenerator.rect.x + 15, (int)btnGenerator.rect.y + 20, 18, WHITE);
         }
     }
-    
-    // Индикатор положения камеры
-    const char* camText = cameraYaw == -1 ? "ДВЕРЬ" : (cameraYaw == 1 ? "ГЕНЕРАТОР" : "ЦЕНТР");
-    Color camColor = cameraYaw == 0 ? GREEN : YELLOW;
+
+    // Индикатор направления камеры (всегда виден)
+    const char* camText = targetCameraYaw == -1 ? "ДВЕРЬ" :
+                          (targetCameraYaw == 1 ? "ГЕНЕРАТОР" : "ЦЕНТР");
+    Color camColor = (fabsf(currentCameraAngle - targetCameraYaw * 90.0f) <= CAMERA_ARRIVE_THRESHOLD) ? GREEN : YELLOW;
+
     DrawRectangle(SCREEN_WIDTH / 2 - 100, 520, 200, 40, Fade(BLACK, 0.7f));
     DrawText(TextFormat("КАМЕРА: %s", camText), SCREEN_WIDTH / 2 - 90, 530, 24, camColor);
+
+    // Подсказка зон касания
+    DrawRectangle(0, SCREEN_HEIGHT - 60, SCREEN_WIDTH / 3, 60, Fade(Color{0, 100, 0, 255}, 0.25f));
+    DrawRectangle(2 * SCREEN_WIDTH / 3, SCREEN_HEIGHT - 60, SCREEN_WIDTH / 3, 60, Fade(Color{0, 100, 0, 255}, 0.25f));
+    DrawText("← ДВЕРЬ", 30, SCREEN_HEIGHT - 45, 22, Fade(WHITE, 0.7f));
+    DrawText("ГЕНЕРАТОР →", SCREEN_WIDTH - 180, SCREEN_HEIGHT - 45, 22, Fade(WHITE, 0.7f));
 }
 
 // ============================================================
@@ -458,67 +473,82 @@ int main()
     {
         double delta = GetFrameTime();
 
-        // === ПЛАВНОЕ ВРАЩЕНИЕ КАМЕРЫ ===
-        int targetYaw = cameraYaw;
-        
+        // ============================================================
+        // УПРАВЛЕНИЕ КАМЕРОЙ (ПЛАВНЫЙ ПОВОРОТ)
+        // ============================================================
 #if defined(PLATFORM_ANDROID)
-        // Android - тач управление
+        // Android: зоны экрана (левая / центр / правая треть)
         Vector2 touch = GetTouchPosition(0);
-        if (touch.x >= 0)
+        if (touch.x >= 0.0f)
         {
-            // Левая часть экрана - дверь
-            if (touch.x < SCREEN_WIDTH / 3)
-            {
-                targetYaw = -1;
-            }
-            // Правая часть экрана - генератор
-            else if (touch.x > 2 * SCREEN_WIDTH / 3)
-            {
-                targetYaw = 1;
-            }
-            // Центр - часы
+            if (touch.x < SCREEN_WIDTH * 0.33f)
+                targetCameraYaw = -1;
+            else if (touch.x > SCREEN_WIDTH * 0.67f)
+                targetCameraYaw = 1;
             else
-            {
-                targetYaw = 0;
-            }
+                targetCameraYaw = 0;
         }
 #else
-        // PC - клавиатура
+        // Desktop: клавиши задают целевое направление
         if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))
-        {
-            if (cameraYaw > -1) targetYaw = -1;
-        }
+            targetCameraYaw = -1;
         if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
-        {
-            if (cameraYaw < 1) targetYaw = 1;
-        }
-        if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP))
-        {
-            targetYaw = 0;
-        }
+            targetCameraYaw = 1;
+        if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN))
+            targetCameraYaw = 0;
 #endif
-        
-        cameraYaw = targetYaw;
-        
-        // Плавная интерполяция угла камеры
-        float targetAngle = cameraYaw * 90.0f; // -90, 0, или +90 градусов
-        currentCameraAngle += (targetAngle - currentCameraAngle) * CAMERA_SMOOTH_SPEED * delta;
-        
-        // Применяем плавный поворот
-        float yawOffset = currentCameraAngle * DEG2RAD;
-        camera.position.x = sinf(yawOffset) * 4.0f;
-        camera.position.z = 4.0f + cosf(yawOffset) * 4.0f - 4.0f;
-        camera.target.x = sinf(yawOffset) * 2.0f;
-        camera.target.z = cosf(yawOffset) * 2.0f;
 
-        // Обновление Android кнопок
+        // Плавная интерполяция угла
+        float targetAngle = targetCameraYaw * 90.0f;
+        currentCameraAngle += (targetAngle - currentCameraAngle) * CAMERA_SMOOTH_SPEED * (float)delta;
+
+        // Когда почти довернулись — фиксируем угол точно
+        if (fabsf(currentCameraAngle - targetAngle) < 0.5f)
+            currentCameraAngle = targetAngle;
+
+        // Логическое направление (для кнопок и проверки [F]/[G])
+        // Активируется только когда камера близко к цели
+        if (fabsf(currentCameraAngle - targetAngle) <= CAMERA_ARRIVE_THRESHOLD)
+            cameraYaw = targetCameraYaw;
+        else
+        {
+            // Пока поворачиваемся — определяем по текущему углу
+            if (currentCameraAngle < -45.0f)
+                cameraYaw = -1;
+            else if (currentCameraAngle > 45.0f)
+                cameraYaw = 1;
+            else
+                cameraYaw = 0;
+        }
+
+        // Камера стоит на месте и только поворачивается (как голова)
+        // Фиксированная позиция игрока
+        camera.position.x = 0.0f;
+        camera.position.y = 1.5f;
+        camera.position.z = 4.0f;
+
+        // Поворот взгляда влево/вправо
+        float yawRad = currentCameraAngle * DEG2RAD;
+        float lookDistance = 5.0f;   // куда смотрим вперёд
+
+        camera.target.x = camera.position.x + sinf(yawRad) * lookDistance;
+        camera.target.y = 1.2f;
+        camera.target.z = camera.position.z - cosf(yawRad) * lookDistance;
+
+        camera.up.x = 0.0f;
+        camera.up.y = 1.0f;
+        camera.up.z = 0.0f;
+
 #if defined(PLATFORM_ANDROID)
         UpdateTouchControls();
 #endif
 
-        // Дверь (PC)
 #if !defined(PLATFORM_ANDROID)
-        if (IsKeyPressed(KEY_F) && cameraYaw == -1 && !gameOver && !finished && !nightComplete)
+        // Desktop управление дверью и генератором
+        // Работает только когда камера почти довернулась
+        bool canInteract = fabsf(currentCameraAngle - targetCameraYaw * 90.0f) <= CAMERA_ARRIVE_THRESHOLD;
+
+        if (canInteract && IsKeyPressed(KEY_F) && cameraYaw == -1 && !gameOver && !finished && !nightComplete)
         {
             doorClosed = !doorClosed;
             if (gpuNoise && doorClosed)
@@ -532,14 +562,13 @@ int main()
             }
         }
 
-        // Генератор (PC)
-        if (IsKeyPressed(KEY_G) && cameraYaw == 1 && !gameOver && !finished && !nightComplete)
+        if (canInteract && IsKeyPressed(KEY_G) && cameraYaw == 1 && !gameOver && !finished && !nightComplete)
         {
             generatorOn = !generatorOn;
         }
 #endif
 
-        // SPACE
+        // SPACE — рестарт / следующая ночь
         if (IsKeyPressed(KEY_SPACE))
         {
             if (gameOver)
@@ -575,14 +604,15 @@ int main()
             }
         }
 
-        // Игровая логика
+        // ============================================================
+        // ИГРОВАЯ ЛОГИКА
+        // ============================================================
         if (!finished && !gameOver && !nightComplete)
         {
             gameTime += delta;
             nextLightEvent -= delta;
             nextGpuEvent -= delta;
 
-            // Отключение света
             if (nextLightEvent <= 0 && mainPower && !lightEventActive)
             {
                 mainPower = false;
@@ -599,7 +629,6 @@ int main()
 
             lightOn = mainPower || generatorOn;
 
-            // Сатоши
             if (!lightOn && !generatorOn && !mainPower)
             {
                 satoshiTimer += delta;
@@ -613,7 +642,6 @@ int main()
                 satoshiTimer = 0.0;
             }
 
-            // Авария электричества
             if (lightEventActive)
             {
                 lightOffTimer += delta;
@@ -632,7 +660,6 @@ int main()
                 }
             }
 
-            // Топливо
             if (generatorOn)
             {
                 fuel -= fuelConsumptionRate * delta;
@@ -644,7 +671,6 @@ int main()
                 }
             }
 
-            // GPU шум
             if (nextGpuEvent <= 0 && !gpuNoise && !gpuEventActive && !doorClosed)
             {
                 gpuNoise = true;
@@ -661,7 +687,6 @@ int main()
                 ScheduleNextGpuEvent();
             }
 
-            // Температура
             if (doorClosed)
             {
                 gpuTemperature += 1.5 * delta;
@@ -673,7 +698,6 @@ int main()
             }
             if (gpuNoise) gpuTemperature += 4.0 * delta;
 
-            // Перегрев
             if (gpuTemperature >= MAX_TEMP)
             {
                 char reason[256];
@@ -681,7 +705,6 @@ int main()
                 SetGameOver(reason);
             }
 
-            // Таймер GPU
             if (gpuEventActive)
             {
                 gpuNoiseTimer += delta;
@@ -693,7 +716,6 @@ int main()
                 }
             }
 
-            // Конец ночи
             if (gameTime >= GAME_LENGTH)
             {
                 gameTime = GAME_LENGTH;
@@ -706,26 +728,22 @@ int main()
             }
         }
 
-        // Обновление звуков
         if (glitchLoaded && IsMusicStreamPlaying(glitchSound)) UpdateMusicStream(glitchSound);
         if (fanLoaded && IsMusicStreamPlaying(fanNoiseSound)) UpdateMusicStream(fanNoiseSound);
         if (ambientLoaded) UpdateMusicStream(ambientSound);
 
-        // Время на часах
         char clockText[32];
         FormatGameTime(gameTime, clockText, sizeof(clockText));
 
-        // Рисование
         BeginDrawing();
-        
-        // ТУСКЛЫЙ СВЕТ - темный фон всегда
-        if (lightOn) 
+
+        // ТУСКЛЫЙ СВЕТ
+        if (lightOn)
         {
             ClearBackground(RAYWHITE);
         }
-        else 
+        else
         {
-            // Очень темный фон когда свет выключен
             ClearBackground((Color){15, 15, 20, 255});
         }
 
@@ -733,14 +751,12 @@ int main()
         DrawModel(scene, Vector3{0, 0, 0}, 1.0f, WHITE);
         EndMode3D();
 
-        // ЭФФЕКТ ТУСКЛОГО СВЕТА - полупрозрачный оверлей
+        // ЭФФЕКТ ТУСКЛОГО СВЕТА
         if (!lightOn)
         {
-            // Рисуем полупрозрачный черный прямоугольник поверх всего 3D
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(BLACK, 0.7f));
         }
 
-        // Часы
         Vector2 screenPosition = GetWorldToScreen(clockPosition, camera);
         int fontSize = 60;
         int textWidth = MeasureText(clockText, fontSize);
@@ -748,7 +764,6 @@ int main()
         int textY = (int)screenPosition.y - fontSize / 2;
         DrawText(clockText, textX, textY, fontSize, RED);
 
-        // HUD
         DrawText(TextFormat("NIGHT %d / %d", currentNight, maxNights), SCREEN_WIDTH / 2 - 60, 20, 25, YELLOW);
 
         Color bulbColor = lightOn ? YELLOW : DARKGRAY;
@@ -769,10 +784,9 @@ int main()
         DrawRectangle(20, 150, 130, 30, doorColor);
         DrawText(doorClosed ? "DOOR: CLOSED" : "DOOR: OPEN", 25, 157, 18, BLACK);
 
-        // Предупреждения
         if (generatorOn && fuel < 20.0 && (int)(GetTime() * 4) % 2 == 0)
             DrawText("!!! LOW FUEL! TURN OFF GENERATOR [G] !!!", SCREEN_WIDTH / 2 - 200, 250, 24, RED);
-        
+
         if (satoshiTimer > 0.0)
         {
             if ((int)(GetTime() * 5) % 2 == 0)
@@ -808,27 +822,34 @@ int main()
             DrawText(tempText, SCREEN_WIDTH / 2 - 100, 80, 20, GREEN);
         }
 
-        const char* yawText = cameraYaw == -1 ? "LEFT (door)" : (cameraYaw == 1 ? "RIGHT (generator)" : "CENTER (clock)");
+        // Подсказки управления
+#if defined(PLATFORM_ANDROID)
+        DrawText("Касайся левой / центральной / правой части экрана", 20, 20, 18, GRAY);
+        DrawText("чтобы поворачивать камеру", 20, 42, 18, GRAY);
+#else
+        const char* yawText = targetCameraYaw == -1 ? "LEFT (door)" :
+                              (targetCameraYaw == 1 ? "RIGHT (generator)" : "CENTER (clock)");
         DrawText(TextFormat("Camera: %s  [A/D/W]", yawText), 20, 20, 20, GRAY);
         DrawText("F - door (only when looking left)", 20, 50, 18, GRAY);
         DrawText("G - generator (only when looking right)", 20, 75, 18, GRAY);
         DrawText("A/D - rotate camera", 20, 100, 18, GRAY);
+#endif
         DrawText("SPACE - restart / next night", 20, SCREEN_HEIGHT - 30, 18, GRAY);
 
+#if !defined(PLATFORM_ANDROID)
         if (IsKeyDown(KEY_F) && cameraYaw != -1)
             DrawText("Turn LEFT to use the door", SCREEN_WIDTH / 2 - 180, SCREEN_HEIGHT - 80, 22, YELLOW);
         if (IsKeyDown(KEY_G) && cameraYaw != 1)
             DrawText("Turn RIGHT to use the generator", SCREEN_WIDTH / 2 - 200, SCREEN_HEIGHT - 80, 22, YELLOW);
+#endif
 
         if (!clockExists)
             DrawText("WARNING: Object 'Clock' not found in GLB", 20, 125, 18, ORANGE);
 
-        // Android кнопки
 #if defined(PLATFORM_ANDROID)
         DrawTouchControls();
 #endif
 
-        // Экраны состояния
         if (gameOver)
         {
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(BLACK, 0.8f));
